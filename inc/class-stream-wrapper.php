@@ -769,23 +769,18 @@ class Stream_Wrapper {
 				$client = $this->getClient();
 				$acl = isset( $options['acl'] ) ? $options['acl'] : 'private';
 
-				// Normalize keys - ensure trailing slash for directories
+				// Normalize keys - remove trailing slashes
 				$from_key = rtrim( $parts_from['Key'], '/' );
 				$to_key = rtrim( $parts_to['Key'], '/' );
 
-				$existsAsFile = $client->doesObjectExistV2(
-					$parts_from['Bucket'],
-					$parts_from['Key'],
-					false,
-					$options
-				);
-
-				$isDirectory = ! $existsAsFile && $this->isDirectoryPrefix( $parts_from['Bucket'], $from_key );
+				$isDirectory = $this->isDirectoryPrefix( $parts_from['Bucket'], $from_key );
 
 				if ( $isDirectory ) {
 					return $this->renameDirectory( $client, $parts_from, $parts_to, $from_key, $to_key, $acl, $options );
 				}
 
+				$parts_from['Key'] = $from_key;
+				$parts_to['Key'] = $to_key;
 				return $this->renameFile( $client, $parts_from, $parts_to, $acl, $options );
 			}
 		);
@@ -850,22 +845,6 @@ class Stream_Wrapper {
 				$cache_keys_to_clear[] = "{$this->protocol}://{$parts_from['Bucket']}/{$old_key}";
 				$cache_keys_to_clear[] = "{$this->protocol}://{$parts_to['Bucket']}/{$new_key}";
 			}
-		}
-
-		// Handle directory marker (empty object with key ending in "/") if it exists
-		$directory_marker_key = $from_prefix;
-		if ( $client->doesObjectExistV2( $parts_from['Bucket'], $directory_marker_key, false, $options ) ) {
-			$directory_marker_new_key = $to_prefix;
-			$copy_commands[] = $client->getCommand( 'CopyObject', [
-				'Bucket'     => $parts_to['Bucket'],
-				'Key'        => $directory_marker_new_key,
-				'CopySource' => $this->encodeCopySource( $parts_from['Bucket'], $directory_marker_key ),
-				'ACL'        => $acl,
-			] + $options );
-
-			$objects_to_delete[] = [ 'Key' => $directory_marker_key ];
-			$cache_keys_to_clear[] = "{$this->protocol}://{$parts_from['Bucket']}/{$directory_marker_key}";
-			$cache_keys_to_clear[] = "{$this->protocol}://{$parts_to['Bucket']}/{$directory_marker_new_key}";
 		}
 
 		if ( empty( $copy_commands ) ) {
