@@ -763,8 +763,8 @@ class Stream_Wrapper {
 
 		if ( $partsFrom['Key'] === null || $partsFrom['Key'] === '' || $partsTo['Key'] === null || $partsTo['Key'] === '' ) {
 			return $this->triggerError(
-				'The Amazon S3 stream wrapper only '
-				. 'supports copying objects'
+				'Renaming a bucket root is not supported. '
+				. 'You must specify a path in the form of s3://bucket/key'
 			);
 		}
 
@@ -796,8 +796,8 @@ class Stream_Wrapper {
 	 * Uses batch operations for better S3 performance.
 	 *
 	 * @param S3ClientInterface $client    S3 client instance
-	 * @param array{Bucket: string, Key: string} $parts_from Source path parts
-	 * @param array{Bucket: string, Key: string} $parts_to   Destination path parts
+	 * @param array{Bucket: string, Key: string, ...} $parts_from Source path parts
+	 * @param array{Bucket: string, Key: string, ...} $parts_to   Destination path parts
 	 * @param string            $from_key   Normalized source key
 	 * @param string            $to_key     Normalized destination key
 	 * @param string            $acl       ACL for copied objects
@@ -884,8 +884,8 @@ class Stream_Wrapper {
 	 * Rename a single file by copying and then deleting the original.
 	 *
 	 * @param S3ClientInterface $client    S3 client instance
-	 * @param array{Bucket: string, Key: string} $parts_from Source path parts
-	 * @param array{Bucket: string, Key: string} $parts_to   Destination path parts
+	 * @param array{Bucket: string, Key: string, ...} $parts_from Source path parts
+	 * @param array{Bucket: string, Key: string, ...} $parts_to   Destination path parts
 	 * @param string            $acl       ACL for copied object
 	 * @param array             $options   Additional S3 options
 	 * @return bool True on success
@@ -1257,7 +1257,8 @@ class Stream_Wrapper {
 			'MaxKeys' => 1,
 		] );
 
-		return ! empty( $result['Contents'] ) || ! empty( $result['CommonPrefixes'] );
+		return ( is_array( $result['Contents'] ) && count( $result['Contents'] ) > 0 )
+			|| ( is_array( $result['CommonPrefixes'] ) && count( $result['CommonPrefixes'] ) > 0 );
 	}
 
 	/**
