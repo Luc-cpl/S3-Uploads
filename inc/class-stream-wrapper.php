@@ -163,6 +163,8 @@ class Stream_Wrapper {
 	 * @return bool
 	 */
 	public function stream_open( $path, $mode, $options, &$opened_path ) {
+        // remove eventual // in path exept for the protocol part
+        $path = preg_replace( '#(?<!:)//+#', '/', $path );
 		$this->initProtocol( $path );
 		$this->params = $this->getBucketKey( $path );
 		$this->mode = rtrim( $mode, 'bt' );
@@ -380,6 +382,8 @@ class Stream_Wrapper {
 	}
 
 	public function unlink( string $path ) : bool {
+        // remove eventual // in path exept for the protocol part
+        $path = preg_replace( '#(?<!:)//+#', '/', $path );
 		$this->initProtocol( $path );
 
 		/** @psalm-var array{pattern: string, action: string, target?: string}|null $bypass */
@@ -428,6 +432,8 @@ class Stream_Wrapper {
 	 * @return StatArray|bool
 	 */
 	public function url_stat( string $path, int $flags ) {
+        // remove eventual // in path exept for the protocol part
+        $path = preg_replace( '#(?<!:)//+#', '/', $path );
 		$this->initProtocol( $path );
 
 		/** @psalm-var array{pattern: string, action: string, target?: string}|null $bypass */
@@ -603,6 +609,9 @@ class Stream_Wrapper {
 	 * @link http://www.php.net/manual/en/streamwrapper.mkdir.php
 	 */
 	public function mkdir( string $path, int $mode, $options ) : bool {
+	    // remove eventual // in path exept for the protocol part
+        $path = preg_replace( '#(?<!:)//+#', '/', $path );
+
 		$this->initProtocol( $path );
 		$params = $this->withPath( $path );
 		$this->clearCacheKey( $path );
@@ -625,6 +634,8 @@ class Stream_Wrapper {
 	 * @return bool
 	 */
 	public function rmdir( string $path, $options ) : bool {
+	    // remove eventual // in path exept for the protocol part
+        $path = preg_replace( '#(?<!:)//+#', '/', $path );
 		$this->initProtocol( $path );
 		$this->clearCacheKey( $path );
 		$params = $this->withPath( $path );
@@ -661,6 +672,8 @@ class Stream_Wrapper {
 	 * @see http://www.php.net/manual/en/function.opendir.php
 	 */
 	public function dir_opendir( $path, $options ) {
+        // remove eventual // in path exept for the protocol part
+        $path = preg_replace( '#(?<!:)//+#', '/', $path );
 		$this->initProtocol( $path );
 		$this->openedPath = $path;
 		$params = $this->withPath( $path );
@@ -842,6 +855,9 @@ class Stream_Wrapper {
 	 * @link http://www.php.net/manual/en/function.rename.php
 	 */
 	public function rename( $path_from, $path_to ) {
+	    // remove eventual // in path exept for the protocol part
+		$path_from = preg_replace( '#(?<!:)//+#', '/', $path_from );
+        $path_to = preg_replace( '#(?<!:)//+#', '/', $path_to );
 		// PHP will not allow rename across wrapper types, so we can safely
 		// assume $path_from and $path_to have the same protocol
 		$this->initProtocol( $path_from );
