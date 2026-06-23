@@ -119,4 +119,20 @@ class File_Bypass {
 		}
 		return null;
 	}
+
+	/**
+	 * Return the first bypass rule matching a directory path or its descendants.
+	 *
+	 * Rules are commonly written as descendant globs (e.g. *\/redux/*). Directory
+	 * operations like opendir() and mkdir() receive the directory itself
+	 * (e.g. s3://bucket/uploads/redux), so also try the same path with a trailing slash.
+	 *
+	 * @param string $path Full S3 directory path.
+	 * @return array|null
+	 * @psalm-return array{pattern: string, action: string, target?: string}|null
+	 */
+	public static function match_directory( string $path ) : ?array {
+		$path = rtrim( $path, '/' );
+		return self::match( $path ) ?: self::match( $path . '/' );
+	}
 }

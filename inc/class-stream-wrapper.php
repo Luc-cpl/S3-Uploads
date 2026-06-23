@@ -599,6 +599,21 @@ class Stream_Wrapper {
 	 */
 	public function mkdir( string $path, int $mode, $options ) : bool {
 		$this->initProtocol( $path );
+		/** @psalm-var array{pattern: string, action: string, target?: string}|null $bypass */
+		$bypass = File_Bypass::match_directory( $path );
+		if ( $bypass ) {
+			if ( in_array( $bypass['action'], [ 'void', 'exists' ], true ) ) {
+				return true;
+			}
+			if ( $bypass['action'] === 'local' ) {
+				$local_path = $this->getLocalBypassPath( $path, $bypass );
+				if ( $local_path === null ) {
+					return false;
+				}
+				return wp_mkdir_p( $local_path );
+			}
+		}
+
 		$params = $this->withPath( $path );
 		$this->clearCacheKey( $path );
 		if ( ! $params['Bucket'] ) {
@@ -621,6 +636,22 @@ class Stream_Wrapper {
 	 */
 	public function rmdir( string $path, $options ) : bool {
 		$this->initProtocol( $path );
+		/** @psalm-var array{pattern: string, action: string, target?: string}|null $bypass */
+		$bypass = File_Bypass::match_directory( $path );
+		if ( $bypass ) {
+			if ( in_array( $bypass['action'], [ 'void', 'exists' ], true ) ) {
+				return true;
+			}
+			if ( $bypass['action'] === 'local' ) {
+				$local_path = $this->getLocalBypassPath( $path, $bypass );
+				if ( $local_path === null ) {
+					return true;
+				}
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				return ! is_dir( $local_path ) || @rmdir( $local_path );
+			}
+		}
+
 		$this->clearCacheKey( $path );
 		$params = $this->withPath( $path );
 		$client = $this->getClient();
@@ -659,6 +690,29 @@ class Stream_Wrapper {
 		$this->initProtocol( $path );
 		$this->openedPath = $path;
 		$params = $this->withPath( $path );
+		/** @psalm-var array{pattern: string, action: string, target?: string}|null $bypass */
+		$bypass = File_Bypass::match_directory( $path );
+		if ( $bypass ) {
+			$this->openedBucket = $params['Bucket'];
+			$this->openedBucketPrefix = ( $params['Key'] !== null && $params['Key'] !== '' )
+				? rtrim( $params['Key'], '/' ) . '/'
+				: '';
+
+			if ( in_array( $bypass['action'], [ 'void', 'exists' ], true ) ) {
+				$this->objectIterator = new \ArrayIterator( [] );
+				return true;
+			}
+
+			if ( $bypass['action'] === 'local' ) {
+				$local_path = $this->getLocalBypassPath( $path, $bypass );
+				if ( $local_path === null ) {
+					return false;
+				}
+				$this->objectIterator = $this->getLocalBypassDirectoryIterator( $local_path, $params );
+				return true;
+			}
+		}
+
 		/** @var string|null */
 		$delimiter = $this->getOption( 'delimiter' );
 		/** @var callable|null $filterFn */
@@ -840,6 +894,34 @@ class Stream_Wrapper {
 		// PHP will not allow rename across wrapper types, so we can safely
 		// assume $path_from and $path_to have the same protocol
 		$this->initProtocol( $path_from );
+		/** @psalm-var array{pattern: string, action: string, target?: string}|null $from_bypass */
+		$from_bypass = File_Bypass::match( $path_from ) ?: File_Bypass::match_directory( $path_from );
+		/** @psalm-var array{pattern: string, action: string, target?: string}|null $to_bypass */
+		$to_bypass = File_Bypass::match( $path_to ) ?: File_Bypass::match_directory( $path_to );
+
+		if ( $from_bypass || $to_bypass ) {
+			if ( ! $from_bypass || ! $to_bypass ) {
+				return true;
+			}
+
+			if ( in_array( $from_bypass['action'], [ 'void', 'exists' ], true )
+				|| in_array( $to_bypass['action'], [ 'void', 'exists' ], true )
+			) {
+				return true;
+			}
+
+			if ( $from_bypass['action'] === 'local' && $to_bypass['action'] === 'local' ) {
+				$local_from = $this->getLocalBypassPath( $path_from, $from_bypass );
+				$local_to = $this->getLocalBypassPath( $path_to, $to_bypass );
+				if ( $local_from === null || $local_to === null ) {
+					return false;
+				}
+				wp_mkdir_p( dirname( $local_to ) );
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				return @rename( $local_from, $local_to );
+			}
+		}
+
 		$partsFrom = $this->withPath( $path_from );
 		$partsTo = $this->withPath( $path_to );
 		$this->clearCacheKey( $path_from );
@@ -1257,6 +1339,54 @@ class Stream_Wrapper {
 		}
 
 		return $local;
+	}
+
+	/**
+	 * Build an S3-like directory iterator from a local bypass directory.
+	 *
+	 * @param string $local_path Local filesystem directory path.
+	 * @param array  $params     Bucket/key options for the opened S3 directory.
+	 * @psalm-param array{Bucket: string, Key: string|null} $params
+	 * @return \Iterator
+	 */
+	private function getLocalBypassDirectoryIterator( string $local_path, array $params ) : \Iterator {
+		if ( ! is_dir( $local_path ) ) {
+			return new \ArrayIterator( [] );
+		}
+
+		// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		$entries = @scandir( $local_path );
+		if ( $entries === false ) {
+			return new \ArrayIterator( [] );
+		}
+
+		$key_prefix = $params['Key'] !== null && $params['Key'] !== ''
+			? rtrim( $params['Key'], '/' ) . '/'
+			: '';
+		$results = [];
+
+		foreach ( $entries as $entry ) {
+			if ( $entry === '.' || $entry === '..' ) {
+				continue;
+			}
+
+			$entry_path = rtrim( $local_path, '/' ) . '/' . $entry;
+			$key = $key_prefix . $entry;
+
+			if ( is_dir( $entry_path ) ) {
+				$results[] = [ 'Prefix' => $key . '/' ];
+				continue;
+			}
+
+			$mtime = filemtime( $entry_path );
+			$results[] = [
+				'Key'          => $key,
+				'Size'         => filesize( $entry_path ) ?: 0,
+				'LastModified' => gmdate( 'c', $mtime !== false ? $mtime : time() ),
+			];
+		}
+
+		return new \ArrayIterator( $results );
 	}
 
 	/**
